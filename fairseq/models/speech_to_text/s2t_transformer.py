@@ -314,14 +314,15 @@ class S2TTransformerEncoder(FairseqEncoder):
         if self.layer_norm is not None:
             x = self.layer_norm(x)
 
-        return EncoderOut(
-            encoder_out=x,
-            encoder_padding_mask=encoder_padding_mask,
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=None,
-        )
+        return {
+           "encoder_out": [x],  # T x B x C
+           "encoder_padding_mask": [encoder_padding_mask],  # B x T
+           "encoder_embedding": [],  # B x T x C
+           "encoder_states": [],  # List[T x B x C]
+           "src_tokens": [],
+           "src_lengths": [],
+        }
+
 
     @torch.jit.export
     def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
@@ -331,40 +332,50 @@ class S2TTransformerEncoder(FairseqEncoder):
         variables for Torchscript Optional refinement
         """
 
-        encoder_padding_mask: Optional[Tensor] = encoder_out.encoder_padding_mask
-        encoder_embedding: Optional[Tensor] = encoder_out.encoder_embedding
+        encoder_padding_mask: Optional[Tensor] = encoder_out['encoder_padding_mask']
+        encoder_embedding: Optional[Tensor] = encoder_out['encoder_embedding']
 
         new_encoder_out = (
-            encoder_out.encoder_out
-            if encoder_out.encoder_out is None
-            else encoder_out.encoder_out.index_select(1, new_order)
+            encoder_out["encoder_out"]
+            if encoder_out["encoder_out"] == []
+            else [encoder_out["encoder_out"][0].index_select(1, new_order)]
         )
 
         new_encoder_padding_mask = (
             encoder_padding_mask
-            if encoder_padding_mask is None
-            else encoder_padding_mask.index_select(0, new_order)
+            if encoder_padding_mask == []
+            else [encoder_padding_mask[0].index_select(0, new_order)]
         )
 
         new_encoder_embedding = (
             encoder_embedding
-            if encoder_embedding is None
-            else encoder_embedding.index_select(0, new_order)
+            if encoder_embedding == []
+            else [encoder_embedding[0].index_select(0, new_order)]
         )
 
-        encoder_states = encoder_out.encoder_states
-        if encoder_states is not None:
-            for idx, state in enumerate(encoder_states):
-                encoder_states[idx] = state.index_select(1, new_order)
+        encoder_states = encoder_out["encoder_states"]
+        if encoder_states != []:
+            for idx, state in enumerate(encoder_states[0]):
+                encoder_states[0][idx] = state.index_select(1, new_order)
 
-        return EncoderOut(
-            encoder_out=new_encoder_out,  # T x B x C
-            encoder_padding_mask=new_encoder_padding_mask,  # B x T
-            encoder_embedding=new_encoder_embedding,  # B x T x C
-            encoder_states=encoder_states,  # List[T x B x C]
-            src_tokens=None,
-            src_lengths=None,
-        )
+        return {
+            "encoder_out" : new_encoder_out,  # T x B x C
+            "encoder_padding_mask" : new_encoder_padding_mask,  # B x T
+            "encoder_embedding" : new_encoder_embedding,  # B x T x C
+            "encoder_states" : encoder_states,  # List[T x B x C]
+            "src_tokens" : [],
+            "src_lengths" : [],
+        }
+
+
+        #return EncoderOut(
+        #    encoder_out=new_encoder_out,  # T x B x C
+        #    encoder_padding_mask=new_encoder_padding_mask,  # B x T
+        #    encoder_embedding=new_encoder_embedding,  # B x T x C
+        #    encoder_states=encoder_states,  # List[T x B x C]
+        #    src_tokens=None,
+        #    src_lengths=None,
+        #)
 
 
 class TransformerDecoderScriptable(TransformerDecoder):
