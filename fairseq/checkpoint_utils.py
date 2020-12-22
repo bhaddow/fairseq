@@ -11,7 +11,7 @@ import os
 import re
 import traceback
 from collections import OrderedDict
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import torch
 from fairseq.dataclass.configs import CheckpointConfig, FairseqConfig
@@ -241,7 +241,7 @@ def load_checkpoint_to_cpu(path, arg_overrides=None):
 
 def load_model_ensemble(
     filenames,
-    arg_overrides=None,
+    arg_overrides: Optional[Dict[str, Any]] = None,
     task=None,
     strict=True,
     suffix="",
@@ -273,7 +273,7 @@ def load_model_ensemble(
 
 def load_model_ensemble_and_task(
     filenames,
-    arg_overrides=None,
+    arg_overrides: Optional[Dict[str, Any]] = None,
     task=None,
     strict=True,
     suffix="",
@@ -408,8 +408,15 @@ def save_state(
     # keep everything on CPU
     state_dict = utils.move_to_cpu(state_dict)
 
-    with PathManager.open(filename, "wb") as f:
-        torch_persistent_save(state_dict, f)
+    if PathManager.supports_rename(filename):
+        # do atomic save
+        with PathManager.open(filename + ".tmp", "wb") as f:
+            torch_persistent_save(state_dict, f)
+        PathManager.rename(filename + ".tmp", filename)
+    else:
+        # fallback to non-atomic save
+        with PathManager.open(filename, "wb") as f:
+            torch_persistent_save(state_dict, f)
 
 
 def _upgrade_state_dict(state):
